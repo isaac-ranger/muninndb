@@ -39,8 +39,8 @@ func TestLookupMode_SemanticPreset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookupMode(semantic): %v", err)
 	}
-	if m.Threshold != 0.3 {
-		t.Errorf("semantic Threshold = %v, want 0.3", m.Threshold)
+	if m.Threshold != 0.15 {
+		t.Errorf("semantic Threshold = %v, want 0.15", m.Threshold)
 	}
 	if m.SemanticSimilarity != 0.8 {
 		t.Errorf("semantic SemanticSimilarity = %v, want 0.8", m.SemanticSimilarity)

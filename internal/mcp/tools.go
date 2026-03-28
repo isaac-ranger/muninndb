@@ -154,7 +154,7 @@ func allToolDefinitions() []ToolDefinition {
 				"properties": map[string]any{
 					"vault":     vaultProp,
 					"context":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Search context phrases."},
-					"threshold": map[string]any{"type": "number", "description": "Minimum relevance score 0.0-1.0 (default 0.5)."},
+					"threshold": map[string]any{"type": "number", "description": "Minimum relevance score 0.0-1.0 (default 0.2)."},
 					"limit":     map[string]any{"type": "integer", "description": "Max results to return (default 10)."},
 					"profile": map[string]any{
 						"type":        "string",
@@ -163,7 +163,7 @@ func allToolDefinitions() []ToolDefinition {
 					"mode": map[string]any{
 						"type":        "string",
 						"enum":        []string{"semantic", "recent", "balanced", "deep"},
-						"description": "Recall mode preset.\n• semantic  — high-precision vector search (threshold=0.3)\n• recent    — recency-biased, 1 hop (threshold=0.2)\n• balanced  — engine defaults (no override)\n• deep      — exhaustive graph traversal, 4 hops (threshold=0.1)",
+						"description": "Recall mode preset.\n• semantic  — high-precision vector search (threshold=0.15)\n• recent    — recency-biased, 1 hop (threshold=0.2)\n• balanced  — engine defaults (no override)\n• deep      — exhaustive graph traversal, 4 hops (threshold=0.1)",
 					},
 					"since": map[string]any{
 						"type":        "string",

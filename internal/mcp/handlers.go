@@ -267,7 +267,7 @@ func (s *MCPServer) handleRecall(ctx context.Context, w http.ResponseWriter, id 
 		return
 	}
 
-	threshold := float32(0.5)
+	threshold := float32(0.2)
 	if t, ok := args["threshold"].(float64); ok {
 		if t < 0 {
 			t = 0

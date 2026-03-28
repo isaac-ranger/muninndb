@@ -19,7 +19,7 @@ var recallModePresets = map[string]RecallModePreset{
 		SemanticSimilarity: 0.8,
 		FullTextRelevance:  0.2,
 		MaxHops:            0,
-		Threshold:          0.3,
+		Threshold:          0.15,
 		DisableACTR:        true,
 	},
 	"recent": {

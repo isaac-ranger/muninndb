@@ -423,8 +423,8 @@ func TestHandleRecall_ModePresetAppliedWhenNoExplicitThreshold(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
-	if eng.lastThreshold != 0.3 {
-		t.Errorf("mode preset threshold = %v, want 0.3", eng.lastThreshold)
+	if eng.lastThreshold != 0.15 {
+		t.Errorf("mode preset threshold = %v, want 0.15", eng.lastThreshold)
 	}
 }
 
