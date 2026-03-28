@@ -12,8 +12,8 @@ import (
 )
 
 // TestEntityBoost_SurfacesEntityLinkedEngram verifies that the post-BFS entity
-// boost phase surfaces an engram that shares a named entity with a top BFS
-// result, even when no direct association edge connects them to the query.
+// boost phase boosts engrams that share a named entity with a top BFS result,
+// when those engrams are already in the result set from the activation pipeline.
 //
 // Setup:
 //   - engram A: "PostgreSQL primary database" — matches query well via FTS
@@ -22,8 +22,8 @@ import (
 //   - engram C: "Redis caching layer" — linked to entity "Redis" only (control)
 //
 // After BFS, A should rank first. The entity boost phase should then scan A's
-// entity links, find "PostgreSQL", and discover B. B must appear in the results
-// with a non-zero score (entityBoostFactor = 0.15).
+// entity links, find "PostgreSQL", and boost B's score if B is already in the
+// result set from the pipeline.
 func TestEntityBoost_SurfacesEntityLinkedEngram(t *testing.T) {
 	t.Parallel()
 	eng, cleanup := testEnv(t)
@@ -72,7 +72,7 @@ func TestEntityBoost_SurfacesEntityLinkedEngram(t *testing.T) {
 	awaitFTS(t, eng)
 
 	// Query for "primary relational database" — should strongly match engram A.
-	// Threshold is low to allow entity-boosted engrams through.
+	// Threshold is low to allow pipeline-scored engrams through.
 	resp, err := eng.Activate(ctx, &mbp.ActivateRequest{
 		Vault:      vault,
 		Context:    []string{"primary relational database"},
@@ -90,16 +90,12 @@ func TestEntityBoost_SurfacesEntityLinkedEngram(t *testing.T) {
 	// Engram A must be in results (strong FTS match).
 	_, aFound := idSet[respA.ID]
 	require.True(t, aFound, "engram A (strong FTS match) should be in results")
-
-	// Engram B must be in results because of entity boost via "PostgreSQL".
-	bScore, bFound := idSet[respB.ID]
-	require.True(t, bFound, "engram B should be surfaced by entity boost (shares 'PostgreSQL' entity with top result A)")
-	require.Greater(t, bScore, float32(0), "engram B score should be > 0 (boosted by entity spread activation)")
 }
 
 // TestEntityBoost_ApplyEntityBoostDirect tests the applyEntityBoost helper
 // directly, bypassing the full activation pipeline. This verifies the core
-// boost logic without requiring FTS indexing delay.
+// boost logic: only existing results with score > 0 are boosted, and the
+// boost is capped at entityBoostCap per engram.
 func TestEntityBoost_ApplyEntityBoostDirect(t *testing.T) {
 	t.Parallel()
 	eng, cleanup := testEnv(t)
@@ -147,14 +143,20 @@ func TestEntityBoost_ApplyEntityBoostDirect(t *testing.T) {
 	idC, err := eng.store.WriteEngram(ctx, ws, engramC)
 	require.NoError(t, err)
 
-	// Re-read A so it has a non-nil Engram pointer with the correct ID set.
+	// Re-read A and B so they have non-nil Engram pointers with correct IDs.
 	fullA, err := eng.store.GetEngram(ctx, ws, idA)
 	require.NoError(t, err)
 	require.NotNil(t, fullA)
 
-	// Build a synthetic BFS result containing only engram A.
+	fullB, err := eng.store.GetEngram(ctx, ws, idB)
+	require.NoError(t, err)
+	require.NotNil(t, fullB)
+
+	// Build a synthetic BFS result containing engram A (seed) and engram B
+	// (already in results from pipeline with a low score).
 	initialResults := []activation.ScoredEngram{
 		{Engram: fullA, Score: 0.8},
+		{Engram: fullB, Score: 0.1},
 	}
 
 	// Apply entity boost.
@@ -171,19 +173,126 @@ func TestEntityBoost_ApplyEntityBoostDirect(t *testing.T) {
 	require.True(t, aFound, "engram A should remain in boosted results")
 	require.GreaterOrEqual(t, aScore, 0.8, "engram A score should not decrease")
 
-	// Engram B must be added with entityBoostFactor score.
+	// Engram B must be boosted (it was already in the result set with score > 0).
 	bScore, bFound := idSet[idB]
-	require.True(t, bFound, "engram B should be added by entity boost")
-	require.InDelta(t, entityBoostFactor, bScore, 0.001, "engram B score should equal entityBoostFactor")
+	require.True(t, bFound, "engram B should remain in boosted results")
+	require.Greater(t, bScore, 0.1, "engram B score should increase from entity boost")
+	require.InDelta(t, 0.1+entityBoostFactor, bScore, 0.001, "engram B score should equal original + entityBoostFactor")
 
-	// Engram C must NOT be in results (different entity, no entity link written).
+	// Engram C must NOT be in results (different entity, not in pipeline results).
 	_, cFound := idSet[idC]
 	require.False(t, cFound, "engram C (different entity) should not be in boosted results")
 }
 
+// TestEntityBoost_DoesNotAddNewEngrams verifies that entity boost does not
+// inject new engrams that were not already in the activation pipeline results.
+func TestEntityBoost_DoesNotAddNewEngrams(t *testing.T) {
+	t.Parallel()
+	eng, cleanup := testEnv(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	const vault = "boost-no-inject-test"
+	ws := eng.store.ResolveVaultPrefix(vault)
+
+	// Write engram A and link to entity "Go".
+	engramA := &storage.Engram{
+		Concept:    "lang-a",
+		Content:    "Go is the primary language",
+		Confidence: 0.9,
+	}
+	idA, err := eng.store.WriteEngram(ctx, ws, engramA)
+	require.NoError(t, err)
+	err = eng.store.UpsertEntityRecord(ctx, storage.EntityRecord{Name: "Go", Type: "language", Source: "inline"}, "inline")
+	require.NoError(t, err)
+	err = eng.store.WriteEntityEngramLink(ctx, ws, idA, "Go")
+	require.NoError(t, err)
+
+	// Write engram B — also linked to "Go" but NOT in pipeline results.
+	engramB := &storage.Engram{
+		Concept:    "lang-b",
+		Content:    "Go modules and dependency management",
+		Confidence: 0.8,
+	}
+	idB, err := eng.store.WriteEngram(ctx, ws, engramB)
+	require.NoError(t, err)
+	err = eng.store.WriteEntityEngramLink(ctx, ws, idB, "Go")
+	require.NoError(t, err)
+
+	fullA, err := eng.store.GetEngram(ctx, ws, idA)
+	require.NoError(t, err)
+
+	// Only engram A in the pipeline results.
+	initialResults := []activation.ScoredEngram{
+		{Engram: fullA, Score: 0.8},
+	}
+
+	boosted := eng.applyEntityBoost(ctx, ws, initialResults)
+
+	// Should still be exactly 1 result — engram B should NOT be added.
+	require.Len(t, boosted, 1, "entity boost should not add engrams not already in results")
+	require.Equal(t, idA, boosted[0].Engram.ID, "only engram A should be in results")
+}
+
+// TestEntityBoost_BoostCapped verifies that the cumulative entity boost per
+// engram is capped at entityBoostCap.
+func TestEntityBoost_BoostCapped(t *testing.T) {
+	t.Parallel()
+	eng, cleanup := testEnv(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	const vault = "boost-cap-test"
+	ws := eng.store.ResolveVaultPrefix(vault)
+
+	// Write engram A linked to 5 entities.
+	engramA := &storage.Engram{Concept: "multi-entity", Content: "linked to many entities", Confidence: 1.0}
+	idA, err := eng.store.WriteEngram(ctx, ws, engramA)
+	require.NoError(t, err)
+	fullA, err := eng.store.GetEngram(ctx, ws, idA)
+	require.NoError(t, err)
+
+	entities := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
+	for _, name := range entities {
+		err = eng.store.UpsertEntityRecord(ctx, storage.EntityRecord{Name: name, Type: "test", Source: "inline"}, "inline")
+		require.NoError(t, err)
+		err = eng.store.WriteEntityEngramLink(ctx, ws, idA, name)
+		require.NoError(t, err)
+	}
+
+	// Write engram B also linked to all 5 entities with a starting score.
+	engramB := &storage.Engram{Concept: "also-multi", Content: "also linked to many entities", Confidence: 1.0}
+	idB, err := eng.store.WriteEngram(ctx, ws, engramB)
+	require.NoError(t, err)
+	fullB, err := eng.store.GetEngram(ctx, ws, idB)
+	require.NoError(t, err)
+
+	for _, name := range entities {
+		err = eng.store.WriteEntityEngramLink(ctx, ws, idB, name)
+		require.NoError(t, err)
+	}
+
+	initialResults := []activation.ScoredEngram{
+		{Engram: fullA, Score: 0.8},
+		{Engram: fullB, Score: 0.1},
+	}
+
+	boosted := eng.applyEntityBoost(ctx, ws, initialResults)
+
+	idSet := make(map[storage.ULID]float64, len(boosted))
+	for _, r := range boosted {
+		idSet[r.Engram.ID] = r.Score
+	}
+
+	bScore := idSet[idB]
+	maxExpected := 0.1 + entityBoostCap
+	require.LessOrEqual(t, bScore, maxExpected+0.001,
+		"engram B boost should be capped: got %.3f, max expected %.3f", bScore, maxExpected)
+}
+
 // TestEntityBoost_MaxResultsRespectedAfterBoost verifies that max_results is
-// enforced even when the entity boost phase appends additional engrams beyond
-// the limit. Regression test for issue #171.
+// enforced even when the entity boost phase adjusts scores. Regression test
+// for issue #171.
 func TestEntityBoost_MaxResultsRespectedAfterBoost(t *testing.T) {
 	t.Parallel()
 	eng, cleanup := testEnv(t)
@@ -203,8 +312,7 @@ func TestEntityBoost_MaxResultsRespectedAfterBoost(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Write many additional entity-linked engrams; the entity boost phase may
-	// append these to results after the BFS limit has been applied.
+	// Write many additional entity-linked engrams.
 	for i := range 8 {
 		_, err := eng.Write(ctx, &mbp.WriteRequest{
 			Vault:   vault,
