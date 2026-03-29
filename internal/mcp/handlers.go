@@ -372,9 +372,17 @@ func (s *MCPServer) handleRecall(ctx context.Context, w http.ResponseWriter, id 
 	}
 
 	var memories []Memory
+	var accessIDs []string
 	for i := range resp.Activations {
 		memories = append(memories, activationToMemory(&resp.Activations[i]))
+		accessIDs = append(accessIDs, resp.Activations[i].ID)
 	}
+
+	// Update last-accessed timestamps so where_left_off reflects recent recall.
+	if len(accessIDs) > 0 {
+		go s.engine.RecordAccessBatch(context.Background(), vault, accessIDs)
+	}
+
 	result := map[string]any{
 		"memories": memories,
 		"total":    resp.TotalFound,

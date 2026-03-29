@@ -165,6 +165,7 @@ func (f *fakeEngine) ListEntities(_ context.Context, _ string, _ int, _ string) 
 func (f *fakeEngine) GetVaultEmbedDim(_ context.Context, _ string) int {
 	return 0
 }
+func (f *fakeEngine) RecordAccessBatch(_ context.Context, _ string, _ []string) {}
 
 func newTestServer() *MCPServer {
 	return New(":0", &fakeEngine{}, "", nil, nil)

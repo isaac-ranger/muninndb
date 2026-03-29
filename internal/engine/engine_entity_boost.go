@@ -12,11 +12,11 @@ const (
 	// entityBoostFactor is the score added to engrams that share a named entity
 	// with a top-N BFS result. Kept well below typical BFS association weights
 	// (~0.3–0.9) so the boost surfaces related content without dominating.
-	entityBoostFactor = float64(0.15)
+	entityBoostFactor = float64(0.10)
 
 	// entityBoostCap is the maximum cumulative entity boost any single engram
 	// can receive. Prevents unbounded score inflation from many entity overlaps.
-	entityBoostCap = float64(0.30)
+	entityBoostCap = float64(0.20)
 
 	// entityBoostTopN is the number of top BFS results whose entity links are
 	// used as seeds for the spread-activation pass.

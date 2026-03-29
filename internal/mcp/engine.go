@@ -157,4 +157,8 @@ type EngineInterface interface {
 	// Derived from the HNSW index — returns 0 if no embeddings have been stored yet
 	// (dimension not yet established; any client-provided dimension will be accepted).
 	GetVaultEmbedDim(ctx context.Context, vault string) int
+
+	// RecordAccessBatch updates last-accessed timestamps for multiple engrams.
+	// Fire-and-forget: errors on individual engrams are silently skipped.
+	RecordAccessBatch(ctx context.Context, vault string, ids []string)
 }

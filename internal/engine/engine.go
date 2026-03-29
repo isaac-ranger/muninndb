@@ -2737,6 +2737,33 @@ func (e *Engine) RecordAccess(ctx context.Context, vault, id string) error {
 	return e.store.UpdateMetadata(ctx, ws, ulid, meta)
 }
 
+// RecordAccessBatch updates last-accessed timestamps for multiple engrams in a
+// single pass. Errors on individual engrams are logged but do not abort the batch.
+func (e *Engine) RecordAccessBatch(ctx context.Context, vault string, ids []string) {
+	ws := e.store.ResolveVaultPrefix(vault)
+	now := time.Now()
+	for _, id := range ids {
+		ulid, err := storage.ParseULID(id)
+		if err != nil {
+			continue
+		}
+		eng, err := e.store.GetEngram(ctx, ws, ulid)
+		if err != nil {
+			continue
+		}
+		meta := &storage.EngramMeta{
+			State:       eng.State,
+			Confidence:  eng.Confidence,
+			Relevance:   eng.Relevance,
+			Stability:   eng.Stability,
+			AccessCount: eng.AccessCount + 1,
+			UpdatedAt:   eng.UpdatedAt,
+			LastAccess:  now,
+		}
+		_ = e.store.UpdateMetadata(ctx, ws, ulid, meta)
+	}
+}
+
 // ResolveVaultPlasticity returns the resolved plasticity config for a vault,
 // falling back to defaults when no authStore is configured.
 func (e *Engine) ResolveVaultPlasticity(vaultName string) auth.ResolvedPlasticity {

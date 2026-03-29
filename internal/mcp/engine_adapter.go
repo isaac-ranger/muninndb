@@ -571,3 +571,7 @@ func convertTreeNode(n *engine.TreeNode) *TreeNode {
 	}
 	return out
 }
+
+func (a *mcpEngineAdapter) RecordAccessBatch(ctx context.Context, vault string, ids []string) {
+	a.eng.RecordAccessBatch(ctx, vault, ids)
+}
